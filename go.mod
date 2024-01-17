@@ -1,4 +1,4 @@
-module howl.moe/cford32
+module github.com/thehowl/cford32
 
 go 1.21.1
 
