@@ -1,4 +1,4 @@
-module zxq.co/x/cford32
+module howl.moe/cford32
 
 go 1.21.1
 

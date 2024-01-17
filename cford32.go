@@ -9,7 +9,7 @@
 //   - Be pronounceable. Humans should be able to accurately transmit the symbols to other humans using a telephone.
 //
 // This is slightly different from a simple difference in encoding table from
-// the normal Go encoding/base32, as when decoding the characters i I l L are
+// the Go's stdlib `encoding/base32`, as when decoding the characters i I l L are
 // parsed as 1, and o O is parsed as 0.
 //
 // This package additionally provides ways to encode uint64's efficiently,
