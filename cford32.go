@@ -1,3 +1,8 @@
+// Copyright 2009 The Go Authors. All rights reserved.
+// Copyright 2024 Morgan Bazalgette. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 // Package cford32 implements a base32-like encoding/decoding package, with the
 // encoding scheme [specified by Douglas Crockford].
 //
@@ -230,13 +235,25 @@ func AppendCompact(id uint64, b []byte) []byte {
 			encTableLower[id&mask],
 		)
 	}
-	// XXX: does this allocate?
-	res := PutUint64Lower(id)
-	return append(b, res[:]...)
+	return append(b,
+		encTableLower[id>>60&mask|0x10],
+		encTableLower[id>>55&mask],
+		encTableLower[id>>50&mask],
+		encTableLower[id>>45&mask],
+		encTableLower[id>>40&mask],
+		encTableLower[id>>35&mask],
+		encTableLower[id>>30&mask],
+		encTableLower[id>>25&mask],
+		encTableLower[id>>20&mask],
+		encTableLower[id>>15&mask],
+		encTableLower[id>>10&mask],
+		encTableLower[id>>5&mask],
+		encTableLower[id&mask],
+	)
 }
 
 func DecodedLen(n int) int {
-	return n * 5 / 8
+	return n/8*5 + n%8*5/8
 }
 
 func EncodedLen(n int) int {
@@ -246,9 +263,7 @@ func EncodedLen(n int) int {
 // Encode encodes src using the encoding enc,
 // writing [EncodedLen](len(src)) bytes to dst.
 //
-// The encoding pads the output to a multiple of 8 bytes,
-// so Encode is not appropriate for use on individual blocks
-// of a large data stream. Use [NewEncoder] instead.
+// The encoding does not contain any padding, unlike Go's base32.
 func Encode(dst, src []byte) {
 	// Copied from encoding/base32/base32.go (go1.22)
 	if len(src) == 0 {
@@ -306,6 +321,7 @@ func Encode(dst, src []byte) {
 	}
 }
 
+// EncodeLower is like [Encode], but uses the lowercase
 func EncodeLower(dst, src []byte) {
 	// Copied from encoding/base32/base32.go (go1.22)
 	if len(src) == 0 {
@@ -372,6 +388,15 @@ func AppendEncode(dst, src []byte) []byte {
 	return dst[:len(dst)+n]
 }
 
+// AppendEncodeLower appends the lowercase cford32 encoded src to dst
+// and returns the extended buffer.
+func AppendEncodeLower(dst, src []byte) []byte {
+	n := EncodedLen(len(src))
+	dst = slices.Grow(dst, n)
+	EncodeLower(dst[len(dst):][:n], src)
+	return dst[:len(dst)+n]
+}
+
 // EncodeToString returns the cford32 encoding of src.
 func EncodeToString(src []byte) string {
 	buf := make([]byte, EncodedLen(len(src)))
@@ -386,23 +411,282 @@ func EncodeToStringLower(src []byte) string {
 	return string(buf)
 }
 
-func Decode(dst, src []byte) (int, error) {
-	panic("not implemented")
+func decode(dst, src []byte) (n int, end bool, err error) {
+	dsti := 0
+	olen := len(src)
+
+	for len(src) > 0 && !end {
+		// Decode quantum using the base32 alphabet
+		var dbuf [8]byte
+		dlen := 8
+
+		for j := 0; j < 8; {
+			if len(src) == 0 {
+				// We have reached the end and are not expecting any padding
+				dlen, end = j, true
+				break
+			}
+			in := src[0]
+			src = src[1:]
+			dbuf[j] = decTable[in]
+			if dbuf[j] == 0xFF {
+				return n, false, CorruptInputError(olen - len(src) - 1)
+			}
+			j++
+		}
+
+		// Pack 8x 5-bit source blocks into 5 byte destination
+		// quantum
+		switch dlen {
+		case 8:
+			dst[dsti+4] = dbuf[6]<<5 | dbuf[7]
+			n++
+			fallthrough
+		case 7:
+			dst[dsti+3] = dbuf[4]<<7 | dbuf[5]<<2 | dbuf[6]>>3
+			n++
+			fallthrough
+		case 5:
+			dst[dsti+2] = dbuf[3]<<4 | dbuf[4]>>1
+			n++
+			fallthrough
+		case 4:
+			dst[dsti+1] = dbuf[1]<<6 | dbuf[2]<<1 | dbuf[3]>>4
+			n++
+			fallthrough
+		case 2:
+			dst[dsti+0] = dbuf[0]<<3 | dbuf[1]>>2
+			n++
+		}
+		dsti += 5
+	}
+	return n, end, nil
 }
 
+type encoder struct {
+	err  error
+	w    io.Writer
+	enc  func(dst, src []byte)
+	buf  [5]byte    // buffered data waiting to be encoded
+	nbuf int        // number of bytes in buf
+	out  [1024]byte // output buffer
+}
+
+func NewEncoder(w io.Writer) io.WriteCloser {
+	return &encoder{w: w, enc: Encode}
+}
+
+func NewEncoderLower(w io.Writer) io.WriteCloser {
+	return &encoder{w: w, enc: EncodeLower}
+}
+
+func (e *encoder) Write(p []byte) (n int, err error) {
+	if e.err != nil {
+		return 0, e.err
+	}
+
+	// Leading fringe.
+	if e.nbuf > 0 {
+		var i int
+		for i = 0; i < len(p) && e.nbuf < 5; i++ {
+			e.buf[e.nbuf] = p[i]
+			e.nbuf++
+		}
+		n += i
+		p = p[i:]
+		if e.nbuf < 5 {
+			return
+		}
+		e.enc(e.out[0:], e.buf[0:])
+		if _, e.err = e.w.Write(e.out[0:8]); e.err != nil {
+			return n, e.err
+		}
+		e.nbuf = 0
+	}
+
+	// Large interior chunks.
+	for len(p) >= 5 {
+		nn := len(e.out) / 8 * 5
+		if nn > len(p) {
+			nn = len(p)
+			nn -= nn % 5
+		}
+		e.enc(e.out[0:], p[0:nn])
+		if _, e.err = e.w.Write(e.out[0 : nn/5*8]); e.err != nil {
+			return n, e.err
+		}
+		n += nn
+		p = p[nn:]
+	}
+
+	// Trailing fringe.
+	copy(e.buf[:], p)
+	e.nbuf = len(p)
+	n += len(p)
+	return
+}
+
+// Close flushes any pending output from the encoder.
+// It is an error to call Write after calling Close.
+func (e *encoder) Close() error {
+	// If there's anything left in the buffer, flush it out
+	if e.err == nil && e.nbuf > 0 {
+		e.enc(e.out[0:], e.buf[0:e.nbuf])
+		encodedLen := EncodedLen(e.nbuf)
+		e.nbuf = 0
+		_, e.err = e.w.Write(e.out[0:encodedLen])
+	}
+	return e.err
+}
+
+// Decode decodes src using cford32. It writes at most
+// [DecodedLen](len(src)) bytes to dst and returns the number of bytes
+// written. If src contains invalid cford32 data, it will return the
+// number of bytes successfully written and [CorruptInputError].
+// Newline characters (\r and \n) are ignored.
+func Decode(dst, src []byte) (n int, err error) {
+	buf := make([]byte, len(src))
+	l := stripNewlines(buf, src)
+	n, _, err = decode(dst, buf[:l])
+	return
+}
+
+// AppendDecode appends the cford32 decoded src to dst
+// and returns the extended buffer.
+// If the input is malformed, it returns the partially decoded src and an error.
+func AppendDecode(dst, src []byte) ([]byte, error) {
+	n := DecodedLen(len(src))
+
+	dst = slices.Grow(dst, n)
+	n, err := Decode(dst[len(dst):][:n], src)
+	return dst[:len(dst)+n], err
+}
+
+// DecodeString returns the bytes represented by the cford32 string s.
 func DecodeString(s string) ([]byte, error) {
-	panic("not implemented")
+	buf := []byte(s)
+	l := stripNewlines(buf, buf)
+	n, _, err := decode(buf, buf[:l])
+	return buf[:n], err
 }
 
-// Encoder/decoder functions
+// stripNewlines removes newline characters and returns the number
+// of non-newline characters copied to dst.
+func stripNewlines(dst, src []byte) int {
+	offset := 0
+	for _, b := range src {
+		if b == '\r' || b == '\n' {
+			continue
+		}
+		dst[offset] = b
+		offset++
+	}
+	return offset
+}
+
+type decoder struct {
+	err    error
+	r      io.Reader
+	end    bool       // saw end of message
+	buf    [1024]byte // leftover input
+	nbuf   int
+	out    []byte // leftover decoded output
+	outbuf [1024 / 8 * 5]byte
+}
+
+// NewDecoder constructs a new base32 stream decoder.
 func NewDecoder(r io.Reader) io.Reader {
-	panic("not implemented")
+	return &decoder{r: &newlineFilteringReader{r}}
 }
 
-func NewEncoder(w io.Writer) io.Writer {
-	panic("not implemented")
+func readEncodedData(r io.Reader, buf []byte) (n int, err error) {
+	for n < 1 && err == nil {
+		var nn int
+		nn, err = r.Read(buf[n:])
+		n += nn
+	}
+	return
 }
 
-func NewEncoderLower(w io.Writer) io.Writer {
-	panic("not implemented")
+func (d *decoder) Read(p []byte) (n int, err error) {
+	// Use leftover decoded output from last read.
+	if len(d.out) > 0 {
+		n = copy(p, d.out)
+		d.out = d.out[n:]
+		if len(d.out) == 0 {
+			return n, d.err
+		}
+		return n, nil
+	}
+
+	if d.err != nil {
+		return 0, d.err
+	}
+
+	// Read nn bytes from input, bounded [8,len(d.buf)]
+	nn := EncodedLen(len(p))
+	if nn < 8 { // nn < 8
+		nn = 8
+	}
+	if nn > len(d.buf) {
+		nn = len(d.buf)
+	}
+
+	nn, d.err = readEncodedData(d.r, d.buf[d.nbuf:nn])
+	d.nbuf += nn
+	if d.nbuf < 1 {
+		return 0, d.err
+	}
+	if nn > 0 && d.end {
+		return 0, CorruptInputError(0)
+	}
+
+	// Decode chunk into p, or d.out and then p if p is too small.
+	nr := d.nbuf
+	nw := DecodedLen(d.nbuf)
+
+	if nw > len(p) {
+		nw, d.end, err = decode(d.outbuf[0:], d.buf[0:nr])
+		d.out = d.outbuf[0:nw]
+		n = copy(p, d.out)
+		d.out = d.out[n:]
+	} else {
+		n, d.end, err = decode(p, d.buf[0:nr])
+	}
+	d.nbuf -= nr
+	for i := 0; i < d.nbuf; i++ {
+		d.buf[i] = d.buf[i+nr]
+	}
+
+	if err != nil && (d.err == nil || d.err == io.EOF) {
+		d.err = err
+	}
+
+	if len(d.out) > 0 {
+		// We cannot return all the decoded bytes to the caller in this
+		// invocation of Read, so we return a nil error to ensure that Read
+		// will be called again.  The error stored in d.err, if any, will be
+		// returned with the last set of decoded bytes.
+		return n, nil
+	}
+
+	return n, d.err
+}
+
+type newlineFilteringReader struct {
+	wrapped io.Reader
+}
+
+func (r *newlineFilteringReader) Read(p []byte) (int, error) {
+	n, err := r.wrapped.Read(p)
+	for n > 0 {
+		s := p[0:n]
+		offset := stripNewlines(s, s)
+		if err != nil || offset > 0 {
+			return offset, err
+		}
+		// Previous buffer entirely whitespace, read again
+		n, err = r.wrapped.Read(p)
+	}
+	return n, err
 }
