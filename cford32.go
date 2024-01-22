@@ -257,7 +257,7 @@ func DecodedLen(n int) int {
 }
 
 func EncodedLen(n int) int {
-	return (n*8 + 4) / 5
+	return n/5*8 + (n%5*8+4)/5
 }
 
 // Encode encodes src using the encoding enc,
@@ -411,11 +411,11 @@ func EncodeToStringLower(src []byte) string {
 	return string(buf)
 }
 
-func decode(dst, src []byte) (n int, end bool, err error) {
+func decode(dst, src []byte) (n int, err error) {
 	dsti := 0
 	olen := len(src)
 
-	for len(src) > 0 && !end {
+	for len(src) > 0 {
 		// Decode quantum using the base32 alphabet
 		var dbuf [8]byte
 		dlen := 8
@@ -423,14 +423,14 @@ func decode(dst, src []byte) (n int, end bool, err error) {
 		for j := 0; j < 8; {
 			if len(src) == 0 {
 				// We have reached the end and are not expecting any padding
-				dlen, end = j, true
+				dlen = j
 				break
 			}
 			in := src[0]
 			src = src[1:]
 			dbuf[j] = decTable[in]
 			if dbuf[j] == 0xFF {
-				return n, false, CorruptInputError(olen - len(src) - 1)
+				return n, CorruptInputError(olen - len(src) - 1)
 			}
 			j++
 		}
@@ -460,7 +460,7 @@ func decode(dst, src []byte) (n int, end bool, err error) {
 		}
 		dsti += 5
 	}
-	return n, end, nil
+	return n, nil
 }
 
 type encoder struct {
@@ -547,8 +547,7 @@ func (e *encoder) Close() error {
 func Decode(dst, src []byte) (n int, err error) {
 	buf := make([]byte, len(src))
 	l := stripNewlines(buf, src)
-	n, _, err = decode(dst, buf[:l])
-	return
+	return decode(dst, buf[:l])
 }
 
 // AppendDecode appends the cford32 decoded src to dst
@@ -566,7 +565,7 @@ func AppendDecode(dst, src []byte) ([]byte, error) {
 func DecodeString(s string) ([]byte, error) {
 	buf := []byte(s)
 	l := stripNewlines(buf, buf)
-	n, _, err := decode(buf, buf[:l])
+	n, err := decode(buf, buf[:l])
 	return buf[:n], err
 }
 
@@ -587,7 +586,6 @@ func stripNewlines(dst, src []byte) int {
 type decoder struct {
 	err    error
 	r      io.Reader
-	end    bool       // saw end of message
 	buf    [1024]byte // leftover input
 	nbuf   int
 	out    []byte // leftover decoded output
@@ -624,10 +622,7 @@ func (d *decoder) Read(p []byte) (n int, err error) {
 	}
 
 	// Read nn bytes from input, bounded [8,len(d.buf)]
-	nn := EncodedLen(len(p))
-	if nn < 8 { // nn < 8
-		nn = 8
-	}
+	nn := (len(p)/5 + 1) * 8
 	if nn > len(d.buf) {
 		nn = len(d.buf)
 	}
@@ -637,21 +632,21 @@ func (d *decoder) Read(p []byte) (n int, err error) {
 	if d.nbuf < 1 {
 		return 0, d.err
 	}
-	if nn > 0 && d.end {
-		return 0, CorruptInputError(0)
-	}
 
 	// Decode chunk into p, or d.out and then p if p is too small.
 	nr := d.nbuf
+	if d.err != io.EOF && nr%8 != 0 {
+		nr -= nr % 8
+	}
 	nw := DecodedLen(d.nbuf)
 
 	if nw > len(p) {
-		nw, d.end, err = decode(d.outbuf[0:], d.buf[0:nr])
+		nw, err = decode(d.outbuf[0:], d.buf[0:nr])
 		d.out = d.outbuf[0:nw]
 		n = copy(p, d.out)
 		d.out = d.out[n:]
 	} else {
-		n, d.end, err = decode(p, d.buf[0:nr])
+		n, err = decode(p, d.buf[0:nr])
 	}
 	d.nbuf -= nr
 	for i := 0; i < d.nbuf; i++ {
