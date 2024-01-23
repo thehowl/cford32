@@ -36,8 +36,9 @@
 // automatically switches to the full encoding. The properties of the generated
 // strings are still maintained: for instance, any two encoded uint64s x,y
 // consistently generated with the compact encoding, if the numeric value is
-// x < y, will also be x < y in lexical ordering. However, values [0,2^34) have a
-// "double encoding", which if mixed together lose the lexical ordering property.
+// x < y, will also be x < y in lexicographical ordering. However, values
+// [0,2^34) have a "double encoding", which if mixed together lose the
+// lexicographical ordering property.
 //
 // The Uint64 encoding is most useful for generating string versions of Uint64
 // IDs. Practically, it allows you to retain sleek and compact IDs for your
