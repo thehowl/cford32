@@ -15,7 +15,6 @@ func ExamplePutCompact() {
 		n := uint64(gen.Int63n(1 << 35))
 		fmt.Printf("%11d: %s\n", n, string(cford32.PutCompact(n)))
 	}
-
 	// Output:
 	// 14334683418: db6kt8t
 	// 34093059390: g00000zr1nk9y
@@ -28,7 +27,6 @@ func ExamplePutCompact() {
 func ExampleUint64() {
 	val, _ := cford32.Uint64([]byte("ex2yfm6"))
 	fmt.Println(val)
-
 	// Output:
 	// 16008560262
 }

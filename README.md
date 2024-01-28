@@ -26,3 +26,34 @@ The main purpose I envision for this package is to create small, friendly,
 case-insensitive IDs. The encoding and decoding functions exist to match the API
 of similar packages like the standard library `base32`, and as such supporting
 adapting the code of this package for other use cases.
+
+## Examples
+
+```go
+package main
+
+import (
+	"fmt"
+	"math/rand"
+
+	"github.com/thehowl/cford32"
+)
+
+func main() {
+	gen := rand.New(rand.NewSource(12345))
+
+	for i := 0; i < 6; i++ {
+		// 1 << 35 allows us to show diverse set of compact/extended
+		n := uint64(gen.Int63n(1 << 35))
+		fmt.Printf("%11d: %s\n", n, string(cford32.PutCompact(n)))
+	}
+
+	// Output:
+	// 14334683418: db6kt8t
+	// 34093059390: g00000zr1nk9y
+	//   417819965: 0ceev9x
+	// 17538543416: g00000gap1vsr
+	//  5407252823: 514r8aq
+	// 16008560262: ex2yfm6
+}
+```
