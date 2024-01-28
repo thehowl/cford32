@@ -1,4 +1,4 @@
-# cford32 [![Go Reference](https://pkg.go.dev/badge/github.com/thehowl/cford32.svg)](https://pkg.go.dev/github.com/thehowl/cford32)
+# cford32 [![Go Reference](https://pkg.go.dev/badge/github.com/thehowl/cford32.svg)](https://pkg.go.dev/github.com/thehowl/cford32) [![go test](https://github.com/thehowl/cford32/actions/workflows/go.yml/badge.svg)](https://github.com/thehowl/cford32/actions/workflows/go.yml)
 
 Package cford32 implements a base32-like encoding/decoding package, with the
 encoding scheme [specified by Douglas Crockford].
