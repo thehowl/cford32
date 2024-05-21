@@ -170,7 +170,7 @@ func Uint64(b []byte) (uint64, error) {
 
 const mask = 31
 
-// PutUint64 returns a cford32-encoded byte slice.
+// PutUint64 returns a cford32-encoded byte array.
 func PutUint64(id uint64) [13]byte {
 	return [13]byte{
 		encTable[id>>60&mask|0x10], // specify full encoding
@@ -215,8 +215,8 @@ func PutUint64Lower(id uint64) [13]byte {
 // representation of cford32 described in the package documentation where
 // possible (all values of id < 1<<34). The lowercase encoding is used.
 //
-// The resulting byte slice will be 7 bytes long for all compact values,
-// and 13 bytes long for
+// The resulting byte slice will be 7 bytes long for all values that use the
+// compact encoding, and 13 bytes long for all others.
 func PutCompact(id uint64) []byte {
 	return AppendCompact(id, nil)
 }
@@ -253,10 +253,14 @@ func AppendCompact(id uint64, b []byte) []byte {
 	)
 }
 
+// DecodedLen returns the number of decoded bytes from n of encoded bytes
+// when using [Decode].
 func DecodedLen(n int) int {
 	return n/8*5 + n%8*5/8
 }
 
+// EncodedLen returns the number of ecnoded bytes from n of encoded bytes
+// when using [Encode].
 func EncodedLen(n int) int {
 	return n/5*8 + (n%5*8+4)/5
 }
@@ -322,7 +326,8 @@ func Encode(dst, src []byte) {
 	}
 }
 
-// EncodeLower is like [Encode], but uses the lowercase
+// EncodeLower is like [Encode], but uses the lowercase variation of the
+// encoding.
 func EncodeLower(dst, src []byte) {
 	// Copied from encoding/base32/base32.go (go1.22)
 	if len(src) == 0 {
@@ -473,10 +478,17 @@ type encoder struct {
 	out  [1024]byte // output buffer
 }
 
+// NewEncoder returns a new cford32 stream encoder.
+// Data written to the returned writer will be encoded using enc and then
+// written to w. Base32 encodings operate in 5-byte blocks; when finished
+// writing, the caller must Close the returned encoder to flush any
+// partially written blocks.
 func NewEncoder(w io.Writer) io.WriteCloser {
 	return &encoder{w: w, enc: Encode}
 }
 
+// NewEncoderLower is like [NewEncoder], but it uses the lowercase vairation of
+// the encoding.
 func NewEncoderLower(w io.Writer) io.WriteCloser {
 	return &encoder{w: w, enc: EncodeLower}
 }
