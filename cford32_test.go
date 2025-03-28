@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"testing"
@@ -50,6 +51,50 @@ func BenchmarkCompact(b *testing.B) {
 	buf := make([]byte, 13)
 	for i := 0; i < b.N; i++ {
 		_ = AppendCompact(uint64(i), buf[:0])
+	}
+}
+
+func TestUint64(t *testing.T) {
+	tt := []struct {
+		val    string
+		output uint64
+		err    string
+	}{
+		{"0000001", 1, ""},
+		{"OoOoOoL", 1, ""},
+		{"OoUoOoL", 0, CorruptInputError(2).Error()},
+		{"!123123", 0, CorruptInputError(0).Error()},
+		{"Loooooo", 1073741824, ""},
+		{"goooooo", 0, CorruptInputError(0).Error()},
+		{"goooooooooooo", 0, ""},
+		{"goooooooooolo", 32, ""},
+		{"fzzzzzz", (1 << 34) - 1, ""},
+		{"g00000fzzzzzz", (1 << 34) - 1, ""},
+		{"g000000", 0, CorruptInputError(0).Error()},
+		{"g00000g000000", (1 << 34), ""},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.val, func(t *testing.T) {
+			res, err := Uint64([]byte(tc.val))
+			if tc.err != "" {
+				_ = assert.Error(t, err) &&
+					assert.Equal(t, tc.err, err.Error())
+			} else {
+				_ = assert.NoError(t, err) &&
+					assert.Equal(t, tc.output, res)
+			}
+		})
+	}
+}
+
+func TestRandomCompactRoundtrip(t *testing.T) {
+	for i := 0; i < 1<<16; i++ {
+		value := rand.Uint64()
+		encoded := PutCompact(value)
+		decoded, err := Uint64(encoded)
+		assert.NoError(t, err)
+		assert.Equal(t, value, decoded)
 	}
 }
 

@@ -35,7 +35,7 @@ func main() {
 	if arg := flag.Arg(0); arg != "" && arg != "-" {
 		f, err = os.Open(arg)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error opening %q: %v", arg, err)
+			fmt.Fprintf(os.Stderr, "error opening %q: %v\n", arg, err)
 			os.Exit(1)
 		}
 	}
@@ -44,24 +44,24 @@ func main() {
 	case *u64 && *dec:
 		buf, err := io.ReadAll(f)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error reading stdin: %v", err)
+			fmt.Fprintf(os.Stderr, "error reading stdin: %v\n", err)
 			os.Exit(1)
 		}
 		n, err := cford32.Uint64(bytes.TrimSpace(buf))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error reading uint64: %v", err)
+			fmt.Fprintf(os.Stderr, "error reading uint64: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Println(n)
 	case *u64 && !*dec:
 		buf, err := io.ReadAll(f)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error reading stdin: %v", err)
+			fmt.Fprintf(os.Stderr, "error reading stdin: %v\n", err)
 			os.Exit(1)
 		}
 		u, err := strconv.ParseUint(string(bytes.TrimSpace(buf)), 0, 64)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error parsing integer: %v", err)
+			fmt.Fprintf(os.Stderr, "error parsing integer: %v\n", err)
 			os.Exit(1)
 		}
 		res := cford32.PutCompact(u)
@@ -73,7 +73,7 @@ func main() {
 		dec := cford32.NewDecoder(f)
 		_, err := io.Copy(os.Stdout, dec)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error decoding: %v", err)
+			fmt.Fprintf(os.Stderr, "error decoding: %v\n", err)
 			os.Exit(1)
 		}
 	case !*u64 && !*dec:
@@ -85,11 +85,11 @@ func main() {
 		}
 		_, err := io.Copy(enc, f)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error encoding: %v", err)
+			fmt.Fprintf(os.Stderr, "error encoding: %v\n", err)
 			os.Exit(1)
 		}
 		if err := enc.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "error encoding: %v", err)
+			fmt.Fprintf(os.Stderr, "error encoding: %v\n", err)
 			os.Exit(1)
 		}
 		os.Stdout.Write([]byte("\n"))
